@@ -112,6 +112,14 @@ impl BlocklistAIController {
         let existing_conversation_id =
             self.find_existing_conversation_by_server_token(&init_event.conversation_id, ctx);
         let conversation_id = existing_conversation_id
+            .inspect(|conversation_id| {
+                // The local conversation is bound to a cloud-side session, so mark it as a
+                // shared-session view; otherwise `apply_client_actions` won't reconstruct
+                // UserQuery / ActionResult inputs from the cloud agent's response messages.
+                history.update(ctx, |history, _| {
+                    history.set_viewing_shared_session_for_conversation(*conversation_id, true);
+                });
+            })
             .or_else(|| {
                 let selected_conversation_id = self
                     .context_model
@@ -150,9 +158,11 @@ impl BlocklistAIController {
                     h.start_new_conversation(terminal_view_id, false, true, ctx)
                 })
             });
-        if self
-            .should_skip_replayed_response_for_existing_conversation(existing_conversation_id, ctx)
-        {
+        if self.should_skip_replayed_response_for_existing_conversation(
+            existing_conversation_id,
+            &init_event.request_id,
+            ctx,
+        ) {
             self.shared_session_state.current_response_id = Some(stream_id);
             self.shared_session_state
                 .should_skip_current_replayed_response = true;
@@ -220,22 +230,42 @@ impl BlocklistAIController {
     fn should_skip_replayed_response_for_existing_conversation(
         &self,
         existing_conversation_id: Option<AIConversationId>,
+        init_request_id: &str,
         ctx: &mut ModelContext<Self>,
     ) -> bool {
         let Some(conversation_id) = existing_conversation_id else {
             return false;
         };
         let model = self.terminal_model.lock();
-        if !model.is_receiving_agent_conversation_replay()
-            || !model.should_suppress_existing_agent_conversation_replay()
-        {
+        let is_receiving_replay = model.is_receiving_agent_conversation_replay();
+        let should_suppress = model.should_suppress_existing_agent_conversation_replay();
+        if !is_receiving_replay || !should_suppress {
             return false;
         }
         drop(model);
 
-        BlocklistAIHistoryModel::as_ref(ctx)
+        // Only skip the replayed response when we already have a local exchange whose
+        // `server_output_id` matches `request_id`. New exchanges (e.g. the user's first
+        // post-handoff prompt) carry unseen request_ids and must flow through normally.
+        let history = BlocklistAIHistoryModel::as_ref(ctx);
+        let known_server_output_ids: Vec<String> = history
             .conversation(&conversation_id)
-            .is_some_and(|conversation| conversation.exchange_count() > 0)
+            .map(|conversation| {
+                conversation
+                    .all_exchanges()
+                    .into_iter()
+                    .filter_map(|exchange| {
+                        exchange
+                            .output_status
+                            .server_output_id()
+                            .map(|sid| sid.to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        known_server_output_ids
+            .iter()
+            .any(|sid| sid == init_request_id)
     }
 
     fn on_shared_client_actions(
