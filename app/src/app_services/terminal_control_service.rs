@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::pane_group::PaneId;
 use crate::workspace::WorkspaceRegistry;
 use async_trait::async_trait;
@@ -208,9 +210,9 @@ impl TerminalControlServiceImpl {
         ctx: &mut AppContext,
     ) -> TerminalControlResponse {
         match request {
-            TerminalControlRequest::CreateTab => {
-                TerminalControlResponse::Error(TerminalControlError::IpcUnavailable)
-            }
+            TerminalControlRequest::CreateTab => create_terminal_tab(ctx)
+                .map(|pane_id| TerminalControlResponse::CreateTab { pane_id })
+                .unwrap_or_else(TerminalControlResponse::Error),
             TerminalControlRequest::ListTabs => TerminalControlResponse::ListTabs(list_tabs(ctx)),
             TerminalControlRequest::ListPanes => {
                 TerminalControlResponse::ListPanes(list_panes(ctx))
@@ -382,6 +384,27 @@ fn current_pane(ctx: &AppContext) -> Option<PaneSummary> {
 fn active_workspace(ctx: &AppContext) -> Option<warpui::ViewHandle<crate::workspace::Workspace>> {
     let active_window = ctx.windows().state().active_window?;
     WorkspaceRegistry::as_ref(ctx).get(active_window, ctx)
+}
+
+fn create_terminal_tab(ctx: &mut AppContext) -> Result<String, TerminalControlError> {
+    let workspace = active_workspace(ctx).ok_or(TerminalControlError::NoActiveTerminal)?;
+
+    workspace.update(ctx, |workspace, ctx| {
+        let existing_pane_ids = workspace
+            .tab_views()
+            .flat_map(|pane_group| pane_group.as_ref(ctx).terminal_pane_ids())
+            .collect::<HashSet<_>>();
+
+        workspace.add_terminal_tab(false, ctx);
+
+        workspace
+            .active_tab_pane_group()
+            .as_ref(ctx)
+            .terminal_pane_ids()
+            .find(|pane_id| !existing_pane_ids.contains(pane_id))
+            .map(|pane_id| pane_id.to_string())
+            .ok_or(TerminalControlError::NoActiveTerminal)
+    })
 }
 
 fn build_pane_summary(

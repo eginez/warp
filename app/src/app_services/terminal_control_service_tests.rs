@@ -160,6 +160,49 @@ fn terminal_control_service_create_tab_response_round_trips() {
 }
 
 #[test]
+fn terminal_control_service_create_tab_returns_new_initial_pane_handle() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+        let window_id = app.read(|ctx| workspace.window_id(ctx));
+
+        app.update(|ctx| {
+            WindowManager::handle(ctx).update(ctx, |windowing_state: &mut WindowManager, _ctx| {
+                windowing_state.overwrite_for_test(ApplicationStage::Active, Some(window_id));
+            });
+        });
+
+        let existing_pane_ids = match TerminalControlService::handle_for_test(
+            TerminalControlRequest::ListPanes,
+            &mut app,
+        ) {
+            TerminalControlResponse::ListPanes(panes) => panes
+                .into_iter()
+                .map(|pane| pane.pane_id)
+                .collect::<std::collections::HashSet<_>>(),
+            other => panic!("expected pane listing, got {other:?}"),
+        };
+
+        let response =
+            TerminalControlService::handle_for_test(TerminalControlRequest::CreateTab, &mut app);
+
+        let new_pane_id = match response {
+            TerminalControlResponse::CreateTab { pane_id } => pane_id,
+            other => panic!("expected CreateTab response, got {other:?}"),
+        };
+
+        match TerminalControlService::handle_for_test(TerminalControlRequest::ListPanes, &mut app)
+        {
+            TerminalControlResponse::ListPanes(panes) => {
+                assert!(panes.iter().any(|pane| pane.pane_id == new_pane_id));
+                assert!(!existing_pane_ids.contains(&new_pane_id));
+            }
+            other => panic!("expected pane listing, got {other:?}"),
+        }
+    });
+}
+
+#[test]
 fn terminal_control_service_current_pane_serializes_as_pane_summary() {
     let response = TerminalControlResponse::CurrentPane(PaneSummary {
         pane_id: "pane-1".to_string(),
