@@ -51,6 +51,7 @@ pub struct TerminalPaneSnapshot {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TerminalControlRequest {
+    CreateTab,
     ListTabs,
     ListPanes,
     CurrentPane,
@@ -83,6 +84,7 @@ pub enum TerminalControlError {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TerminalControlResponse {
+    CreateTab { pane_id: String },
     ListTabs(Vec<TabSummary>),
     ListPanes(Vec<PaneSummary>),
     CurrentPane(PaneSummary),
@@ -206,6 +208,9 @@ impl TerminalControlServiceImpl {
         ctx: &mut AppContext,
     ) -> TerminalControlResponse {
         match request {
+            TerminalControlRequest::CreateTab => {
+                TerminalControlResponse::Error(TerminalControlError::IpcUnavailable)
+            }
             TerminalControlRequest::ListTabs => TerminalControlResponse::ListTabs(list_tabs(ctx)),
             TerminalControlRequest::ListPanes => {
                 TerminalControlResponse::ListPanes(list_panes(ctx))

@@ -61,6 +61,9 @@ fn call_service(
 
 fn command_to_request(command: TerminalControlCommand) -> anyhow::Result<TerminalControlRequest> {
     match command {
+        TerminalControlCommand::CreateTab => {
+            Err(anyhow::anyhow!("terminal control create-tab is not implemented yet"))
+        }
         TerminalControlCommand::ListTabs => Ok(TerminalControlRequest::ListTabs),
         TerminalControlCommand::ListPanes => Ok(TerminalControlRequest::ListPanes),
         TerminalControlCommand::CurrentPane => Ok(TerminalControlRequest::CurrentPane),
@@ -106,6 +109,12 @@ fn write_response_to<W: std::io::Write>(
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     match response {
+        TerminalControlResponse::CreateTab { .. } => {
+            let _ = (output, output_format);
+            Err(anyhow::anyhow!(
+                "terminal control create-tab is not implemented yet"
+            ))
+        }
         TerminalControlResponse::ListTabs(tabs) => {
             let rows = tabs.iter().cloned().map(TerminalControlListTabRow::from);
             output::write_list(rows, output_format, output)

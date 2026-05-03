@@ -1405,6 +1405,7 @@ fn command_to_telemetry_event(command: &CliCommand) -> CliTelemetryEvent {
     match command {
         CliCommand::TerminalControl(terminal_control_cmd) => CliTelemetryEvent::TerminalControl {
             command: match terminal_control_cmd {
+                TerminalControlCommand::CreateTab => "create_tab",
                 TerminalControlCommand::ListTabs => "list_tabs",
                 TerminalControlCommand::ListPanes => "list_panes",
                 TerminalControlCommand::CurrentPane => "current_pane",

@@ -127,6 +127,13 @@ fn terminal_control_service_read_request_round_trips() {
 }
 
 #[test]
+fn terminal_control_service_create_tab_request_round_trips() {
+    let request = TerminalControlRequest::CreateTab;
+
+    assert_eq!(round_trip(&request), request);
+}
+
+#[test]
 fn terminal_control_service_read_response_round_trips() {
     let response = TerminalControlResponse::ReadPane(TerminalPaneSnapshot {
         pane_id: "pane-handle-123".to_string(),
@@ -139,6 +146,15 @@ fn terminal_control_service_read_response_round_trips() {
         cursor_row: None,
         cursor_col: None,
     });
+
+    assert_eq!(round_trip(&response), response);
+}
+
+#[test]
+fn terminal_control_service_create_tab_response_round_trips() {
+    let response = TerminalControlResponse::CreateTab {
+        pane_id: "pane-123".to_string(),
+    };
 
     assert_eq!(round_trip(&response), response);
 }
