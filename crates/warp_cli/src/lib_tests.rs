@@ -165,6 +165,32 @@ fn terminal_control_focus_pane_parses() {
 }
 
 #[test]
+fn terminal_control_read_parses() {
+    let args = Args::try_parse_from(["warp", "read"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp read`");
+
+    assert!(matches!(
+        boxed_cmd.as_ref(),
+        CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::Read)
+    ));
+}
+
+#[test]
+fn terminal_control_read_pane_parses() {
+    let args = Args::try_parse_from(["warp", "read-pane", "pane-123"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp read-pane`");
+
+    let CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::ReadPane(
+        args,
+    )) = boxed_cmd.as_ref()
+    else {
+        panic!("Expected `warp read-pane` command");
+    };
+
+    assert_eq!(args.pane_id, "pane-123");
+}
+
+#[test]
 fn terminal_control_send_parses() {
     let args = Args::try_parse_from(["warp", "send", "echo hi"]).unwrap();
     let boxed_cmd = unwrap_command_line(args, "`warp send`");

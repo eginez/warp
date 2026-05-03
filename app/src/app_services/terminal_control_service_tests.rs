@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use super::{
     PaneSummary, TabSummary, TerminalControlError, TerminalControlRequest, TerminalControlResponse,
-    TerminalControlService, TerminalControlTarget,
+    TerminalControlService, TerminalControlTarget, TerminalPaneSnapshot,
 };
 use crate::notebooks::notebook::NotebookView;
 use crate::pane_group::{Direction, NotebookPane, PaneGroupAction};
@@ -115,6 +115,32 @@ fn terminal_control_service_request_round_trips_all_operations() {
     for request in requests {
         assert_eq!(round_trip(&request), request);
     }
+}
+
+#[test]
+fn terminal_control_service_read_request_round_trips() {
+    let request = TerminalControlRequest::ReadPane {
+        target: TerminalControlTarget::PaneId("pane-handle-123".to_string()),
+    };
+
+    assert_eq!(round_trip(&request), request);
+}
+
+#[test]
+fn terminal_control_service_read_response_round_trips() {
+    let response = TerminalControlResponse::ReadPane(TerminalPaneSnapshot {
+        pane_id: "pane-handle-123".to_string(),
+        title: "shell".to_string(),
+        cwd: Some("/tmp".to_string()),
+        focused: true,
+        active: true,
+        content: "pwd\n/tmp\n".to_string(),
+        truncated: false,
+        cursor_row: None,
+        cursor_col: None,
+    });
+
+    assert_eq!(round_trip(&response), response);
 }
 
 #[test]
@@ -473,6 +499,105 @@ fn terminal_control_service_send_requests_write_bytes_without_changing_focus() {
             let pane_group = workspace.active_tab_pane_group().as_ref(ctx);
             assert_eq!(pane_group.focused_pane_id(ctx), focused_pane_id);
         });
+    });
+}
+
+#[test]
+fn terminal_control_service_read_returns_snapshot_for_explicit_pane_without_changing_focus() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (focused_pane_id, target_pane_id, target_terminal) =
+            workspace.update(&mut app, |workspace, ctx| {
+                let pane_group = workspace.active_tab_pane_group().clone();
+                pane_group.update(ctx, |pane_group, ctx| {
+                    let focused_pane_id =
+                        pane_group.pane_id_by_index(0).expect("focused pane exists");
+                    pane_group.handle_action(&PaneGroupAction::Add(Direction::Right), ctx);
+                    let target_pane_id = pane_group.pane_id_by_index(1).expect("target pane exists");
+                    let target_terminal = pane_group
+                        .terminal_view_from_pane_id(target_pane_id, ctx)
+                        .expect("target terminal exists");
+                    pane_group.focus_pane_by_id(focused_pane_id, ctx);
+                    (focused_pane_id, target_pane_id, target_terminal)
+                })
+            });
+
+        target_terminal.update(&mut app, |view, _ctx| {
+            let mut model = view.model.lock();
+            model.simulate_block("pwd", "/tmp");
+        });
+
+        let response = TerminalControlService::handle_for_test(
+            TerminalControlRequest::ReadPane {
+                target: TerminalControlTarget::PaneId(target_pane_id.to_string()),
+            },
+            &mut app,
+        );
+
+        match response {
+            TerminalControlResponse::ReadPane(snapshot) => {
+                assert_eq!(snapshot.pane_id, target_pane_id.to_string());
+                assert!(!snapshot.focused);
+                assert!(!snapshot.active);
+                assert_eq!(snapshot.content, "pwd\n/tmp");
+                assert!(!snapshot.truncated);
+                assert_eq!(snapshot.cursor_row, None);
+                assert_eq!(snapshot.cursor_col, None);
+            }
+            other => panic!("expected pane snapshot, got {other:?}"),
+        }
+
+        workspace.read(&app, |workspace, ctx| {
+            let pane_group = workspace.active_tab_pane_group().as_ref(ctx);
+            assert_eq!(pane_group.focused_pane_id(ctx), focused_pane_id);
+        });
+    });
+}
+
+#[test]
+fn terminal_control_service_read_marks_truncated_when_snapshot_is_bounded() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        let workspace = mock_workspace(&mut app);
+
+        let (target_pane_id, target_terminal) = workspace.update(&mut app, |workspace, ctx| {
+            let pane_group = workspace.active_tab_pane_group().clone();
+            pane_group.update(ctx, |pane_group, ctx| {
+                let target_pane_id = pane_group.pane_id_by_index(0).expect("target pane exists");
+                let target_terminal = pane_group
+                    .terminal_view_from_pane_id(target_pane_id, ctx)
+                    .expect("target terminal exists");
+                (target_pane_id, target_terminal)
+            })
+        });
+
+        let oversized_output = "0123456789abcdef".repeat(80);
+
+        target_terminal.update(&mut app, |view, _ctx| {
+            let mut model = view.model.lock();
+            model.simulate_block("printf oversized", &oversized_output);
+        });
+
+        let response = TerminalControlService::handle_for_test(
+            TerminalControlRequest::ReadPane {
+                target: TerminalControlTarget::PaneId(target_pane_id.to_string()),
+            },
+            &mut app,
+        );
+
+        match response {
+            TerminalControlResponse::ReadPane(snapshot) => {
+                assert_eq!(snapshot.pane_id, target_pane_id.to_string());
+                assert!(snapshot.truncated);
+                assert!(snapshot.content.ends_with("89abcdef"));
+                assert!(snapshot.content.len() < format!("printf oversized\n{oversized_output}").len());
+                assert_eq!(snapshot.cursor_row, None);
+                assert_eq!(snapshot.cursor_col, None);
+            }
+            other => panic!("expected pane snapshot, got {other:?}"),
+        }
     });
 }
 

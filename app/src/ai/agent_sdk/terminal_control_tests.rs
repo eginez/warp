@@ -11,7 +11,7 @@ use warp_cli::{
 
 use crate::app_services::terminal_control_service::{
     PaneSummary, TabSummary, TerminalControlError, TerminalControlRequest, TerminalControlResponse,
-    TerminalControlTarget,
+    TerminalControlTarget, TerminalPaneSnapshot,
 };
 
 use super::{
@@ -24,7 +24,8 @@ fn terminal_control_send_builds_active_pane_request() {
     assert_eq!(
         command_to_request(TerminalControlCommand::Send(SendTextArgs {
             text: "ls\n".to_string(),
-        })),
+        }))
+        .unwrap(),
         TerminalControlRequest::SendText {
             target: TerminalControlTarget::ActivePane,
             text: "ls\n".to_string(),
@@ -38,7 +39,8 @@ fn terminal_control_send_pane_builds_explicit_target_request() {
         command_to_request(TerminalControlCommand::SendPane(SendTextToPaneArgs {
             pane_id: "pane-123".to_string(),
             text: "pwd\n".to_string(),
-        })),
+        }))
+        .unwrap(),
         TerminalControlRequest::SendText {
             target: TerminalControlTarget::PaneId("pane-123".to_string()),
             text: "pwd\n".to_string(),
@@ -49,21 +51,22 @@ fn terminal_control_send_pane_builds_explicit_target_request() {
 #[test]
 fn command_to_request_maps_other_terminal_control_commands() {
     assert_eq!(
-        command_to_request(TerminalControlCommand::ListTabs),
+        command_to_request(TerminalControlCommand::ListTabs).unwrap(),
         TerminalControlRequest::ListTabs
     );
     assert_eq!(
-        command_to_request(TerminalControlCommand::ListPanes),
+        command_to_request(TerminalControlCommand::ListPanes).unwrap(),
         TerminalControlRequest::ListPanes
     );
     assert_eq!(
-        command_to_request(TerminalControlCommand::CurrentPane),
+        command_to_request(TerminalControlCommand::CurrentPane).unwrap(),
         TerminalControlRequest::CurrentPane
     );
     assert_eq!(
         command_to_request(TerminalControlCommand::FocusPane(PaneTargetArgs {
             pane_id: "pane-456".to_string(),
-        })),
+        }))
+        .unwrap(),
         TerminalControlRequest::FocusPane {
             target: TerminalControlTarget::PaneId("pane-456".to_string()),
         }
@@ -71,7 +74,8 @@ fn command_to_request_maps_other_terminal_control_commands() {
     assert_eq!(
         command_to_request(TerminalControlCommand::SendKey(SendKeyArgs {
             key: "enter".to_string(),
-        })),
+        }))
+        .unwrap(),
         TerminalControlRequest::SendKey {
             target: TerminalControlTarget::ActivePane,
             key: "enter".to_string(),
@@ -81,11 +85,93 @@ fn command_to_request_maps_other_terminal_control_commands() {
         command_to_request(TerminalControlCommand::SendKeyPane(SendKeyToPaneArgs {
             pane_id: "pane-789".to_string(),
             key: "tab".to_string(),
-        })),
+        }))
+        .unwrap(),
         TerminalControlRequest::SendKey {
             target: TerminalControlTarget::PaneId("pane-789".to_string()),
             key: "tab".to_string(),
         }
+    );
+}
+
+#[test]
+fn terminal_control_read_builds_active_pane_request() {
+    assert_eq!(
+        command_to_request(TerminalControlCommand::Read).unwrap(),
+        TerminalControlRequest::ReadPane {
+            target: TerminalControlTarget::ActivePane,
+        }
+    );
+}
+
+#[test]
+fn terminal_control_read_pane_builds_explicit_target_request() {
+    assert_eq!(
+        command_to_request(TerminalControlCommand::ReadPane(PaneTargetArgs {
+            pane_id: "pane-123".to_string(),
+        }))
+        .unwrap(),
+        TerminalControlRequest::ReadPane {
+            target: TerminalControlTarget::PaneId("pane-123".to_string()),
+        }
+    );
+}
+
+#[test]
+fn terminal_control_read_pretty_output_includes_metadata_and_raw_content() {
+    let mut output = Cursor::new(Vec::new());
+
+    write_response_to(
+        &mut output,
+        &TerminalControlResponse::ReadPane(sample_snapshot()),
+        OutputFormat::Pretty,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(output.into_inner()).unwrap(),
+        concat!(
+            "Pane ID: pane-1\n",
+            "Title: shell\n",
+            "Cwd: /tmp/project\n",
+            "Focused: true\n",
+            "Active: true\n",
+            "Truncated: false\n",
+            "Cursor Row: 12\n",
+            "Cursor Col: 34\n",
+            "\n",
+            "$ pwd\n",
+            "/tmp/project\n"
+        )
+    );
+}
+
+#[test]
+fn terminal_control_read_text_output_uses_header_section_then_content() {
+    let mut output = Cursor::new(Vec::new());
+
+    write_response_to(
+        &mut output,
+        &TerminalControlResponse::ReadPane(sample_snapshot()),
+        OutputFormat::Text,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(output.into_inner()).unwrap(),
+        concat!(
+            "Pane ID: pane-1\n",
+            "Title: shell\n",
+            "Cwd: /tmp/project\n",
+            "Focused: true\n",
+            "Active: true\n",
+            "Truncated: false\n",
+            "Cursor Row: 12\n",
+            "Cursor Col: 34\n",
+            "\n",
+            "$ pwd\n",
+            "/tmp/project\n"
+        )
     );
 }
 
@@ -254,5 +340,19 @@ fn sample_pane() -> PaneSummary {
         focused: true,
         active: true,
         pane_type: "terminal".to_string(),
+    }
+}
+
+fn sample_snapshot() -> TerminalPaneSnapshot {
+    TerminalPaneSnapshot {
+        pane_id: "pane-1".to_string(),
+        title: "shell".to_string(),
+        cwd: Some("/tmp/project".to_string()),
+        focused: true,
+        active: true,
+        content: "$ pwd\n/tmp/project\n".to_string(),
+        truncated: false,
+        cursor_row: Some(12),
+        cursor_col: Some(34),
     }
 }

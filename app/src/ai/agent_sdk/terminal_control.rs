@@ -15,7 +15,8 @@ use warpui::{AppContext, r#async::block_on};
 
 use crate::app_services::terminal_control_service::{
     PaneSummary, TabSummary, TerminalControlError, TerminalControlRequest, TerminalControlResponse,
-    TerminalControlService, TerminalControlTarget, terminal_control_service_address,
+    TerminalControlService, TerminalControlTarget, TerminalPaneSnapshot,
+    terminal_control_service_address,
 };
 
 use super::output::{self, TableFormat};
@@ -25,7 +26,7 @@ pub fn run(
     global_options: GlobalOptions,
     command: TerminalControlCommand,
 ) -> anyhow::Result<()> {
-    let request = command_to_request(command);
+    let request = command_to_request(command)?;
     let response = call_service(ctx, request)?;
     let mut stdout = std::io::stdout();
     write_response_to(&mut stdout, &response, global_options.output_format)
@@ -58,35 +59,43 @@ fn call_service(
     }
 }
 
-fn command_to_request(command: TerminalControlCommand) -> TerminalControlRequest {
+fn command_to_request(command: TerminalControlCommand) -> anyhow::Result<TerminalControlRequest> {
     match command {
-        TerminalControlCommand::ListTabs => TerminalControlRequest::ListTabs,
-        TerminalControlCommand::ListPanes => TerminalControlRequest::ListPanes,
-        TerminalControlCommand::CurrentPane => TerminalControlRequest::CurrentPane,
-        TerminalControlCommand::FocusPane(PaneTargetArgs { pane_id }) => {
-            TerminalControlRequest::FocusPane {
+        TerminalControlCommand::ListTabs => Ok(TerminalControlRequest::ListTabs),
+        TerminalControlCommand::ListPanes => Ok(TerminalControlRequest::ListPanes),
+        TerminalControlCommand::CurrentPane => Ok(TerminalControlRequest::CurrentPane),
+        TerminalControlCommand::Read => Ok(TerminalControlRequest::ReadPane {
+            target: TerminalControlTarget::ActivePane,
+        }),
+        TerminalControlCommand::ReadPane(PaneTargetArgs { pane_id }) => {
+            Ok(TerminalControlRequest::ReadPane {
                 target: TerminalControlTarget::PaneId(pane_id),
-            }
+            })
         }
-        TerminalControlCommand::Send(SendTextArgs { text }) => TerminalControlRequest::SendText {
+        TerminalControlCommand::FocusPane(PaneTargetArgs { pane_id }) => {
+            Ok(TerminalControlRequest::FocusPane {
+                target: TerminalControlTarget::PaneId(pane_id),
+            })
+        }
+        TerminalControlCommand::Send(SendTextArgs { text }) => Ok(TerminalControlRequest::SendText {
             target: TerminalControlTarget::ActivePane,
             text,
-        },
+        }),
         TerminalControlCommand::SendPane(SendTextToPaneArgs { pane_id, text }) => {
-            TerminalControlRequest::SendText {
+            Ok(TerminalControlRequest::SendText {
                 target: TerminalControlTarget::PaneId(pane_id),
                 text,
-            }
+            })
         }
-        TerminalControlCommand::SendKey(SendKeyArgs { key }) => TerminalControlRequest::SendKey {
+        TerminalControlCommand::SendKey(SendKeyArgs { key }) => Ok(TerminalControlRequest::SendKey {
             target: TerminalControlTarget::ActivePane,
             key,
-        },
+        }),
         TerminalControlCommand::SendKeyPane(SendKeyToPaneArgs { pane_id, key }) => {
-            TerminalControlRequest::SendKey {
+            Ok(TerminalControlRequest::SendKey {
                 target: TerminalControlTarget::PaneId(pane_id),
                 key,
-            }
+            })
         }
     }
 }
@@ -108,6 +117,9 @@ fn write_response_to<W: std::io::Write>(
         TerminalControlResponse::CurrentPane(pane) => {
             write_current_pane_to(output, pane, output_format)
         }
+        TerminalControlResponse::ReadPane(snapshot) => {
+            write_read_pane_to(output, snapshot, output_format)
+        }
         TerminalControlResponse::FocusPane => {
             write_success_message_to(output, output_format, "Pane focused")
         }
@@ -118,6 +130,46 @@ fn write_response_to<W: std::io::Write>(
             write_success_message_to(output, output_format, "Key sent")
         }
         TerminalControlResponse::Error(err) => Err(anyhow::anyhow!(format_error(err))),
+    }
+}
+
+fn write_read_pane_to<W: std::io::Write>(
+    output: &mut W,
+    snapshot: &TerminalPaneSnapshot,
+    output_format: OutputFormat,
+) -> anyhow::Result<()> {
+    match output_format {
+        OutputFormat::Json => output::write_json(snapshot, output),
+        OutputFormat::Ndjson => output::write_json_line(snapshot, output),
+        OutputFormat::Pretty | OutputFormat::Text => {
+            writeln!(output, "Pane ID: {}", snapshot.pane_id)?;
+            writeln!(output, "Title: {}", snapshot.title)?;
+            writeln!(output, "Cwd: {}", snapshot.cwd.as_deref().unwrap_or(""))?;
+            writeln!(output, "Focused: {}", snapshot.focused)?;
+            writeln!(output, "Active: {}", snapshot.active)?;
+            writeln!(output, "Truncated: {}", snapshot.truncated)?;
+            writeln!(
+                output,
+                "Cursor Row: {}",
+                snapshot
+                    .cursor_row
+                    .map(|row| row.to_string())
+                    .as_deref()
+                    .unwrap_or("")
+            )?;
+            writeln!(
+                output,
+                "Cursor Col: {}",
+                snapshot
+                    .cursor_col
+                    .map(|col| col.to_string())
+                    .as_deref()
+                    .unwrap_or("")
+            )?;
+            writeln!(output)?;
+            write!(output, "{}", snapshot.content)?;
+            Ok(())
+        }
     }
 }
 
@@ -195,6 +247,9 @@ fn format_error(error: &TerminalControlError) -> String {
         TerminalControlError::PaneNotFound { pane_id: None } => "Pane not found".to_string(),
         TerminalControlError::PaneNotTerminal { pane_id } => {
             format!("Pane is not a terminal: {pane_id}")
+        }
+        TerminalControlError::PaneNotReadable { pane_id } => {
+            format!("Pane is not readable: {pane_id}")
         }
         TerminalControlError::PaneNotWritable { pane_id } => {
             format!("Pane is not writable: {pane_id}")

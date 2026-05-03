@@ -3922,6 +3922,78 @@ fn programmatic_pty_write_writes_bytes_without_touching_input_buffer() {
 }
 
 #[test]
+fn terminal_view_snapshot_text_respects_byte_limit() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+
+        terminal.update(&mut app, |view, _ctx| {
+            let mut model = view.model.lock();
+            model.simulate_block("printf first", "first line\n");
+            model.simulate_block("printf second", "second line\n");
+            model.simulate_block("printf third", "third line");
+        });
+
+        terminal.read(&app, |view, _ctx| {
+            let snapshot = view.programmatic_text_snapshot(24);
+
+            assert_eq!(snapshot.content, "\nprintf third\nthird line");
+            assert!(snapshot.truncated);
+            assert_eq!(snapshot.cursor_row, None);
+            assert_eq!(snapshot.cursor_col, None);
+            assert!(snapshot.content.len() <= 24);
+            assert!(snapshot.content.ends_with("third line"));
+        });
+
+        terminal.update(&mut app, |view, _ctx| {
+            let mut model = view.model.lock();
+            model.simulate_block("printf oversized", "0123456789abcdef");
+        });
+
+        terminal.read(&app, |view, _ctx| {
+            let snapshot = view.programmatic_text_snapshot(8);
+
+            assert_eq!(snapshot.content, "89abcdef");
+            assert!(snapshot.truncated);
+            assert_eq!(snapshot.cursor_row, None);
+            assert_eq!(snapshot.cursor_col, None);
+            assert_eq!(snapshot.content.len(), 8);
+        });
+
+        terminal.update(&mut app, |view, _ctx| {
+            let mut model = view.model.lock();
+            model.simulate_block("printf boundary-one", "tail");
+            model.simulate_block("printf boundary-two", "next");
+        });
+
+        terminal.read(&app, |view, _ctx| {
+            let snapshot = view.programmatic_text_snapshot(usize::MAX);
+
+            assert!(snapshot
+                .content
+                .contains("tail\nprintf boundary-two\nnext"));
+            assert!(!snapshot.content.contains("tailprintf boundary-two"));
+            assert!(!snapshot.content.contains("tail\n\nprintf boundary-two"));
+            assert!(!snapshot.truncated);
+        });
+
+        terminal.update(&mut app, |view, _ctx| {
+            let mut model = view.model.lock();
+            model.simulate_block("ab", "");
+            model.simulate_block("cd", "");
+        });
+
+        terminal.read(&app, |view, _ctx| {
+            let snapshot = view.programmatic_text_snapshot(3);
+
+            assert_eq!(snapshot.content, "\ncd");
+            assert!(snapshot.truncated);
+            assert_eq!(snapshot.content.len(), 3);
+        });
+    })
+}
+
+#[test]
 fn submit_with_plugin_and_auto_toggle_keeps_rich_input_open() {
     App::test((), |mut app| async move {
         initialize_app_for_terminal_view(&mut app);

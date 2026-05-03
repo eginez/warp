@@ -37,10 +37,26 @@ pub struct PaneSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TerminalPaneSnapshot {
+    pub pane_id: String,
+    pub title: String,
+    pub cwd: Option<String>,
+    pub focused: bool,
+    pub active: bool,
+    pub content: String,
+    pub truncated: bool,
+    pub cursor_row: Option<u32>,
+    pub cursor_col: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TerminalControlRequest {
     ListTabs,
     ListPanes,
     CurrentPane,
+    ReadPane {
+        target: TerminalControlTarget,
+    },
     FocusPane {
         target: TerminalControlTarget,
     },
@@ -58,6 +74,7 @@ pub enum TerminalControlRequest {
 pub enum TerminalControlError {
     PaneNotFound { pane_id: Option<String> },
     PaneNotTerminal { pane_id: String },
+    PaneNotReadable { pane_id: String },
     PaneNotWritable { pane_id: String },
     NoActiveTerminal,
     UnsupportedKey { key: String },
@@ -69,6 +86,7 @@ pub enum TerminalControlResponse {
     ListTabs(Vec<TabSummary>),
     ListPanes(Vec<PaneSummary>),
     CurrentPane(PaneSummary),
+    ReadPane(TerminalPaneSnapshot),
     FocusPane,
     SendText,
     SendKey,
@@ -76,6 +94,8 @@ pub enum TerminalControlResponse {
 }
 
 pub struct TerminalControlService;
+
+const PROGRAMMATIC_SNAPSHOT_MAX_BYTES: usize = 1024;
 
 impl ipc::Service for TerminalControlService {
     type Request = TerminalControlRequest;
@@ -195,6 +215,15 @@ impl TerminalControlServiceImpl {
                 .unwrap_or(TerminalControlResponse::Error(
                     TerminalControlError::NoActiveTerminal,
                 )),
+            TerminalControlRequest::ReadPane { target } => {
+                match resolve_terminal_target(&target, ctx) {
+                    Ok(resolved) => match read_terminal_snapshot(&resolved, ctx) {
+                        Ok(snapshot) => TerminalControlResponse::ReadPane(snapshot),
+                        Err(error) => TerminalControlResponse::Error(error),
+                    },
+                    Err(error) => TerminalControlResponse::Error(error),
+                }
+            }
             TerminalControlRequest::FocusPane { target } => {
                 match resolve_terminal_target(&target, ctx) {
                     Ok(resolved) => {
@@ -508,6 +537,75 @@ fn resolve_writable_terminal(
     } else {
         Err(TerminalControlError::PaneNotWritable { pane_id })
     }
+}
+
+fn read_terminal_snapshot(
+    resolved: &ResolvedTarget,
+    ctx: &AppContext,
+) -> Result<TerminalPaneSnapshot, TerminalControlError> {
+    let pane_id = resolved.locator.pane_id;
+    let pane_id_string = pane_id.to_string();
+    let window_id = resolved.workspace.window_id(ctx);
+    let active_window = ctx.windows().state().active_window;
+
+    let (title, cwd, content, truncated, cursor_row, cursor_col, focused, active) = resolved
+        .workspace
+        .read(ctx, |workspace: &crate::workspace::Workspace, ctx| {
+            let (tab_index, pane_group) = workspace
+                .tab_views()
+                .enumerate()
+                .find(|(_, pane_group)| pane_group.id() == resolved.locator.pane_group_id)
+                .ok_or_else(|| TerminalControlError::PaneNotFound {
+                    pane_id: Some(pane_id_string.clone()),
+                })?;
+
+            let pane_group = pane_group.as_ref(ctx);
+            let focused = pane_group.focused_pane_id(ctx) == pane_id;
+            let active = Some(window_id) == active_window
+                && workspace.active_tab_index() == tab_index
+                && pane_group.active_session_id(ctx).map(PaneId::from) == Some(pane_id);
+
+            let terminal = pane_group
+                .terminal_view_from_pane_id(pane_id, ctx)
+                .ok_or_else(|| TerminalControlError::PaneNotReadable {
+                    pane_id: pane_id_string.clone(),
+                })?;
+
+            let (title, cwd, snapshot) = terminal.read(ctx, |terminal, ctx| {
+                let snapshot = terminal.programmatic_text_snapshot(PROGRAMMATIC_SNAPSHOT_MAX_BYTES);
+                let title = terminal
+                    .model
+                    .lock()
+                    .terminal_title()
+                    .unwrap_or_else(|| pane_group.title(ctx));
+                let cwd = terminal.pwd_if_local(ctx);
+
+                (title, cwd, snapshot)
+            });
+
+            Ok((
+                title,
+                cwd,
+                snapshot.content,
+                snapshot.truncated,
+                snapshot.cursor_row,
+                snapshot.cursor_col,
+                focused,
+                active,
+            ))
+        })?;
+
+    Ok(TerminalPaneSnapshot {
+        pane_id: pane_id_string,
+        title,
+        cwd,
+        focused,
+        active,
+        content,
+        truncated,
+        cursor_row,
+        cursor_col,
+    })
 }
 
 #[cfg(test)]

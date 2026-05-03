@@ -1984,6 +1984,52 @@ pub enum Event {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProgrammaticSnapshot {
+    pub content: String,
+    pub truncated: bool,
+    pub cursor_row: Option<u32>,
+    pub cursor_col: Option<u32>,
+}
+
+fn truncate_to_recent_bytes(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_owned();
+    }
+
+    let start = text
+        .char_indices()
+        .rev()
+        .scan(0usize, |bytes, (index, ch)| {
+            *bytes += ch.len_utf8();
+            Some((index, *bytes))
+        })
+        .take_while(|(_, bytes)| *bytes <= max_bytes)
+        .last()
+        .map(|(index, _)| index)
+        .unwrap_or(text.len());
+
+    text[start..].to_owned()
+}
+
+fn join_snapshot_chunks(chunks: &[String]) -> String {
+    let mut joined = String::new();
+
+    for chunk in chunks {
+        if joined.is_empty() {
+            joined.push_str(chunk);
+            continue;
+        }
+
+        if !joined.ends_with('\n') {
+            joined.push('\n');
+        }
+        joined.push_str(chunk);
+    }
+
+    joined
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum LeftPanelTargetView {
     FileTree,
@@ -7645,6 +7691,41 @@ impl TerminalView {
         ctx: &mut ViewContext<Self>,
     ) {
         self.write_to_pty(bytes, ctx);
+    }
+
+    pub(crate) fn programmatic_text_snapshot(&self, max_bytes: usize) -> ProgrammaticSnapshot {
+        let chunks = {
+            let model = self.model.lock();
+
+            if model.is_alt_screen_active() {
+                vec![model.alt_screen().output_to_string()]
+            } else {
+                model
+                    .block_list()
+                    .blocks()
+                    .iter()
+                    .map(|block| block.bounds_to_string(block.start_point(), block.end_point()))
+                    .filter(|text| !text.is_empty())
+                    .collect_vec()
+            }
+        };
+        let content = join_snapshot_chunks(&chunks);
+
+        if content.len() <= max_bytes {
+            return ProgrammaticSnapshot {
+                content,
+                truncated: false,
+                cursor_row: None,
+                cursor_col: None,
+            };
+        }
+
+        ProgrammaticSnapshot {
+            content: truncate_to_recent_bytes(&content, max_bytes),
+            truncated: true,
+            cursor_row: None,
+            cursor_col: None,
+        }
     }
 
     pub(crate) fn encode_programmatic_key(&self, key: &str) -> Option<Vec<u8>> {

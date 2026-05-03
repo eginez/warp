@@ -14,6 +14,12 @@ pub enum TerminalControlCommand {
     #[command(name = "focus-pane")]
     /// Focus a terminal pane.
     FocusPane(PaneTargetArgs),
+    #[command(name = "read")]
+    /// Read text from the current pane.
+    Read,
+    #[command(name = "read-pane")]
+    /// Read text from a terminal pane.
+    ReadPane(PaneTargetArgs),
     #[command(name = "send")]
     /// Send text to the current pane.
     Send(SendTextArgs),

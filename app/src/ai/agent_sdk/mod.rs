@@ -1408,6 +1408,8 @@ fn command_to_telemetry_event(command: &CliCommand) -> CliTelemetryEvent {
                 TerminalControlCommand::ListTabs => "list_tabs",
                 TerminalControlCommand::ListPanes => "list_panes",
                 TerminalControlCommand::CurrentPane => "current_pane",
+                TerminalControlCommand::Read => "read",
+                TerminalControlCommand::ReadPane(_) => "read_pane",
                 TerminalControlCommand::FocusPane(_) => "focus_pane",
                 TerminalControlCommand::Send(_) => "send",
                 TerminalControlCommand::SendPane(_) => "send_pane",
