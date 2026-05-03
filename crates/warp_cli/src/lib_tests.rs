@@ -128,6 +128,17 @@ fn terminal_control_list_tabs_parses() {
 }
 
 #[test]
+fn terminal_control_create_tab_parses() {
+    let args = Args::try_parse_from(["warp", "create-tab"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp create-tab`");
+
+    assert!(matches!(
+        boxed_cmd.as_ref(),
+        CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::CreateTab)
+    ));
+}
+
+#[test]
 fn terminal_control_list_panes_parses() {
     let args = Args::try_parse_from(["warp", "list-panes"]).unwrap();
     let boxed_cmd = unwrap_command_line(args, "`warp list-panes`");
@@ -251,6 +262,23 @@ fn terminal_control_send_key_pane_parses() {
 }
 
 #[test]
+fn terminal_control_commands_expose_create_tab_help() {
+    warp_core::features::mark_initialized();
+
+    let mut command = Args::clap_command();
+    command.build();
+
+    let create_tab = command
+        .find_subcommand("create-tab")
+        .expect("create-tab subcommand should exist");
+
+    assert_eq!(
+        create_tab.get_about().map(|about| about.to_string()),
+        Some("Create a new terminal tab and return its initial pane handle".to_string())
+    );
+}
+
+#[test]
 fn terminal_control_commands_expose_top_level_names_and_help() {
     warp_core::features::mark_initialized();
 
@@ -267,11 +295,11 @@ fn terminal_control_commands_expose_top_level_names_and_help() {
     assert_eq!(list_panes.get_name(), "list-panes");
     assert_eq!(
         list_panes.get_about().map(|about| about.to_string()),
-        Some("List terminal panes".to_string())
+        Some("List terminal panes and their pane handles".to_string())
     );
     assert_eq!(
         send.get_about().map(|about| about.to_string()),
-        Some("Send text to the current pane".to_string())
+        Some("Send text to the current pane without changing focus".to_string())
     );
 }
 
