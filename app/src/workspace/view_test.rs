@@ -84,7 +84,7 @@ use warp_editor::editor::NavigationKey;
 use warpui::AddSingletonModel;
 use warpui::{platform::WindowStyle, App, ViewHandle};
 
-fn initialize_app(app: &mut App) {
+pub(crate) fn initialize_app(app: &mut App) {
     initialize_settings_for_tests(app);
 
     // Add the necessary singleton models to the App
@@ -591,7 +591,7 @@ fn mock_workspace_with_shared_session(app: &mut App) -> ViewHandle<Workspace> {
 }
 
 // Creates a workspace as a viewer of a shared session.
-fn mock_workspace_viewing_shared_session(app: &mut App) -> ViewHandle<Workspace> {
+pub(crate) fn mock_workspace_viewing_shared_session(app: &mut App) -> ViewHandle<Workspace> {
     // Create the workspace as a session-sharing sharer.
     let global_resource_handles = GlobalResourceHandles::mock(app);
 
@@ -1012,6 +1012,86 @@ fn test_workspace_sessions_retrieves_panes() {
             assert!(workspace
                 .workspace_sessions(ctx.window_id(), ctx)
                 .any(|x| { x.pane_view_locator().pane_id == new_pane_id }));
+        });
+    });
+}
+
+#[test]
+fn test_resolve_terminal_pane_locator_by_pane_id_does_not_change_focus() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            let first_pane_group = workspace
+                .get_pane_group_view(0)
+                .cloned()
+                .expect("pane group should exist");
+
+            let (first_pane_id, second_pane_id) =
+                first_pane_group.update(ctx, |pane_group, ctx| {
+                    let first_pane_id = pane_group
+                        .pane_id_by_index(0)
+                        .expect("first pane should exist");
+                    pane_group.handle_action(&PaneGroupAction::Add(Direction::Right), ctx);
+                    let second_pane_id = pane_group
+                        .pane_id_by_index(1)
+                        .expect("second pane should exist");
+                    pane_group.focus_pane_by_id(first_pane_id, ctx);
+                    (first_pane_id, second_pane_id)
+                });
+
+            workspace.add_terminal_tab(false, ctx);
+            workspace.activate_tab(0, ctx);
+
+            let inactive_tab_index = 1;
+            let inactive_pane_group = workspace
+                .get_pane_group_view(inactive_tab_index)
+                .cloned()
+                .expect("inactive pane group should exist");
+            let inactive_tab_pane_id = inactive_pane_group.update(ctx, |pane_group, ctx| {
+                let pane_id = pane_group
+                    .pane_id_by_index(0)
+                    .expect("inactive tab pane should exist");
+                pane_group.focus_pane_by_id(pane_id, ctx);
+                pane_id
+            });
+
+            let active_tab_index_before = workspace.active_tab_index();
+            assert_eq!(active_tab_index_before, 0);
+
+            let focused_pane_id_before = first_pane_group.as_ref(ctx).focused_pane_id(ctx);
+            assert_eq!(focused_pane_id_before, first_pane_id);
+
+            let locator_in_active_tab = workspace
+                .resolve_terminal_pane_locator_by_pane_id(second_pane_id, ctx)
+                .expect("terminal pane locator should resolve");
+
+            assert_eq!(
+                locator_in_active_tab,
+                PaneViewLocator {
+                    pane_group_id: first_pane_group.id(),
+                    pane_id: second_pane_id,
+                }
+            );
+
+            let locator_in_inactive_tab = workspace
+                .resolve_terminal_pane_locator_by_pane_id(inactive_tab_pane_id, ctx)
+                .expect("inactive tab terminal pane locator should resolve");
+
+            assert_eq!(
+                locator_in_inactive_tab,
+                PaneViewLocator {
+                    pane_group_id: inactive_pane_group.id(),
+                    pane_id: inactive_tab_pane_id,
+                }
+            );
+            assert_eq!(workspace.active_tab_index(), active_tab_index_before);
+            assert_eq!(
+                first_pane_group.as_ref(ctx).focused_pane_id(ctx),
+                focused_pane_id_before
+            );
         });
     });
 }

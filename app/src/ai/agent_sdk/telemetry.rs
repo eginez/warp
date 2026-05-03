@@ -6,6 +6,8 @@ use warp_core::telemetry::{EnablementState, TelemetryEvent, TelemetryEventDesc};
 #[derive(Debug, EnumDiscriminants)]
 #[strum_discriminants(derive(EnumIter))]
 pub(super) enum CliTelemetryEvent {
+    /// Executing a terminal control command.
+    TerminalControl { command: &'static str },
     /// Executing `warp agent run`
     AgentRun {
         gui: bool,
@@ -121,6 +123,7 @@ impl TelemetryEvent for CliTelemetryEvent {
 
     fn payload(&self) -> Option<Value> {
         match self {
+            CliTelemetryEvent::TerminalControl { command } => Some(json!({ "command": command })),
             CliTelemetryEvent::AgentRun {
                 gui,
                 requested_mcp_servers,
@@ -211,6 +214,7 @@ impl TelemetryEvent for CliTelemetryEvent {
 impl TelemetryEventDesc for CliTelemetryEventDiscriminants {
     fn name(&self) -> &'static str {
         match self {
+            CliTelemetryEventDiscriminants::TerminalControl => "CLI.Execute.TerminalControl",
             CliTelemetryEventDiscriminants::AgentRun => "CLI.Execute.Agent.Run",
             CliTelemetryEventDiscriminants::AgentRunAmbient => "CLI.Execute.Agent.RunAmbient",
             CliTelemetryEventDiscriminants::AgentProfileList => "CLI.Execute.Agent.Profile.List",
@@ -279,6 +283,9 @@ impl TelemetryEventDesc for CliTelemetryEventDiscriminants {
 
     fn description(&self) -> &'static str {
         match self {
+            CliTelemetryEventDiscriminants::TerminalControl => {
+                "Executed a terminal control command from the Warp CLI"
+            }
             CliTelemetryEventDiscriminants::AgentRun => "Ran an agent from the Warp CLI",
             CliTelemetryEventDiscriminants::AgentRunAmbient => {
                 "Ran an ambient agent from the Warp CLI"

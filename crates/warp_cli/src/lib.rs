@@ -32,6 +32,7 @@ pub mod schedule;
 pub mod secret;
 pub mod share;
 pub mod task;
+pub mod terminal_control;
 pub const OZ_RUN_ID_ENV: &str = "OZ_RUN_ID";
 pub const OZ_PARENT_RUN_ID_ENV: &str = "OZ_PARENT_RUN_ID";
 pub const OZ_CLI_ENV: &str = "OZ_CLI";
@@ -480,6 +481,9 @@ pub enum WorkerCommand {
 /// but it allows scripting some Warp functionality.
 #[derive(Debug, Clone, Subcommand)]
 pub enum CliCommand {
+    #[command(flatten)]
+    TerminalControl(crate::terminal_control::TerminalControlCommand),
+
     /// Interact with Oz.
     #[command(subcommand)]
     Agent(crate::agent::AgentCommand),

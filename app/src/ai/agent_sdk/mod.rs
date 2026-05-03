@@ -38,6 +38,7 @@ use warp_cli::{
     secret::SecretCommand,
     share::ShareRequest,
     task::{MessageCommand, TaskCommand},
+    terminal_control::TerminalControlCommand,
     CliCommand, GlobalOptions,
 };
 use warp_core::features::FeatureFlag;
@@ -101,6 +102,7 @@ pub(crate) mod retry;
 mod schedule;
 mod secret;
 mod telemetry;
+mod terminal_control;
 #[cfg(test)]
 mod test_support;
 mod text_layout;
@@ -138,6 +140,9 @@ fn dispatch_command(
     global_options: GlobalOptions,
 ) -> anyhow::Result<()> {
     match command {
+        CliCommand::TerminalControl(terminal_control_cmd) => {
+            terminal_control::run(ctx, global_options, terminal_control_cmd)
+        }
         CliCommand::Agent(agent_cmd) => run_agent(ctx, global_options, agent_cmd),
         CliCommand::Environment(environment_cmd) => {
             if !FeatureFlag::CloudEnvironments.is_enabled() {
@@ -1244,6 +1249,7 @@ impl AgentDriverRunner {
 /// Returns `true` if the given CLI command requires authentication.
 fn command_requires_auth(command: &CliCommand) -> bool {
     match command {
+        CliCommand::TerminalControl(_) => false,
         CliCommand::Agent(agent_cmd) => match agent_cmd {
             AgentCommand::Run { .. } => true,
             AgentCommand::RunCloud { .. } => true,
@@ -1397,6 +1403,18 @@ fn resolve_orchestration_harness_label() -> &'static str {
 /// Map each CLI command into a telemetry event to emit when it's executed.
 fn command_to_telemetry_event(command: &CliCommand) -> CliTelemetryEvent {
     match command {
+        CliCommand::TerminalControl(terminal_control_cmd) => CliTelemetryEvent::TerminalControl {
+            command: match terminal_control_cmd {
+                TerminalControlCommand::ListTabs => "list_tabs",
+                TerminalControlCommand::ListPanes => "list_panes",
+                TerminalControlCommand::CurrentPane => "current_pane",
+                TerminalControlCommand::FocusPane(_) => "focus_pane",
+                TerminalControlCommand::Send(_) => "send",
+                TerminalControlCommand::SendPane(_) => "send_pane",
+                TerminalControlCommand::SendKey(_) => "send_key",
+                TerminalControlCommand::SendKeyPane(_) => "send_key_pane",
+            },
+        },
         CliCommand::Agent(AgentCommand::Run(args)) => CliTelemetryEvent::AgentRun {
             gui: args.gui,
             requested_mcp_servers: args.mcp_specs.len() + args.mcp_servers.len(),

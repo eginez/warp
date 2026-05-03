@@ -9,25 +9,32 @@
 pub mod linux;
 #[cfg(target_os = "macos")]
 mod mac;
+pub(crate) mod terminal_control_service;
 #[cfg(windows)]
 pub mod windows;
 
 use warpui::AppContext;
 
-pub fn init(_ctx: &mut AppContext) {
+pub fn init(ctx: &mut AppContext) {
     log::info!("Initializing app services");
+    ctx.add_singleton_model(terminal_control_service::TerminalControlServiceHost::new);
 
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-    linux::init(_ctx);
+    linux::init(ctx);
     #[cfg(target_os = "macos")]
-    mac::init();
+    {
+        let _ = ctx;
+        mac::init();
+    }
     #[cfg(windows)]
-    windows::init(_ctx);
+    windows::init(ctx);
 }
 
-pub fn teardown(_ctx: &mut AppContext) {
+pub fn teardown(ctx: &mut AppContext) {
     log::info!("Tearing down app services...");
 
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-    linux::teardown(_ctx);
+    linux::teardown(ctx);
+    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+    let _ = ctx;
 }

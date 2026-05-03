@@ -2,6 +2,7 @@ use serde_json::json;
 use warp_cli::{
     artifact::{ArtifactCommand, DownloadArtifactArgs, GetArtifactArgs, UploadArtifactArgs},
     task::{MessageCommand, MessageSendArgs, MessageWatchArgs, TaskCommand},
+    terminal_control::TerminalControlCommand,
     CliCommand,
 };
 use warp_core::telemetry::TelemetryEvent;
@@ -58,6 +59,13 @@ fn artifact_upload_requires_auth() {
             conversation_id: None,
             description: None,
         },)
+    )));
+}
+
+#[test]
+fn terminal_control_list_tabs_does_not_require_auth() {
+    assert!(!command_requires_auth(&CliCommand::TerminalControl(
+        TerminalControlCommand::ListTabs,
     )));
 }
 
@@ -126,6 +134,17 @@ fn run_message_send_telemetry_defaults_to_unknown_harness() {
     )));
 
     assert_eq!(event.payload(), Some(json!({ "harness": "unknown" })));
+}
+
+#[test]
+#[serial_test::serial]
+fn terminal_control_list_tabs_telemetry_maps_command() {
+    let event = command_to_telemetry_event(&CliCommand::TerminalControl(
+        TerminalControlCommand::ListTabs,
+    ));
+
+    assert_eq!(event.name(), "CLI.Execute.TerminalControl");
+    assert_eq!(event.payload(), Some(json!({ "command": "list_tabs" })));
 }
 
 #[test]

@@ -29,6 +29,14 @@ fn restore_env_var(name: &str, previous: Option<OsString>) {
     }
 }
 
+fn unwrap_command_line(args: Args, expected_command: &str) -> Box<CliCommand> {
+    let Some(Command::CommandLine(boxed_cmd)) = args.command else {
+        panic!("Expected {expected_command} command");
+    };
+
+    boxed_cmd
+}
+
 #[test]
 fn agent_run_accepts_model() {
     let args = Args::try_parse_from([
@@ -106,6 +114,139 @@ fn logout_parses() {
     };
 
     assert!(matches!(boxed_cmd.as_ref(), CliCommand::Logout));
+}
+
+#[test]
+fn terminal_control_list_tabs_parses() {
+    let args = Args::try_parse_from(["warp", "list-tabs"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp list-tabs`");
+
+    assert!(matches!(
+        boxed_cmd.as_ref(),
+        CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::ListTabs)
+    ));
+}
+
+#[test]
+fn terminal_control_list_panes_parses() {
+    let args = Args::try_parse_from(["warp", "list-panes"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp list-panes`");
+
+    assert!(matches!(
+        boxed_cmd.as_ref(),
+        CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::ListPanes)
+    ));
+}
+
+#[test]
+fn terminal_control_current_pane_parses() {
+    let args = Args::try_parse_from(["warp", "current-pane"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp current-pane`");
+
+    assert!(matches!(
+        boxed_cmd.as_ref(),
+        CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::CurrentPane)
+    ));
+}
+
+#[test]
+fn terminal_control_focus_pane_parses() {
+    let args = Args::try_parse_from(["warp", "focus-pane", "pane-123"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp focus-pane`");
+
+    let CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::FocusPane(
+        args,
+    )) = boxed_cmd.as_ref()
+    else {
+        panic!("Expected `warp focus-pane` command");
+    };
+
+    assert_eq!(args.pane_id, "pane-123");
+}
+
+#[test]
+fn terminal_control_send_parses() {
+    let args = Args::try_parse_from(["warp", "send", "echo hi"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp send`");
+
+    let CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::Send(args)) =
+        boxed_cmd.as_ref()
+    else {
+        panic!("Expected `warp send` command");
+    };
+
+    assert_eq!(args.text, "echo hi");
+}
+
+#[test]
+fn terminal_control_send_pane_parses() {
+    let args = Args::try_parse_from(["warp", "send-pane", "pane-123", "echo hi"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp send-pane`");
+
+    let CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::SendPane(
+        args,
+    )) = boxed_cmd.as_ref()
+    else {
+        panic!("Expected `warp send-pane` command");
+    };
+
+    assert_eq!(args.pane_id, "pane-123");
+    assert_eq!(args.text, "echo hi");
+}
+
+#[test]
+fn terminal_control_send_key_parses() {
+    let args = Args::try_parse_from(["warp", "send-key", "enter"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp send-key`");
+
+    let CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::SendKey(args)) =
+        boxed_cmd.as_ref()
+    else {
+        panic!("Expected `warp send-key` command");
+    };
+
+    assert_eq!(args.key, "enter");
+}
+
+#[test]
+fn terminal_control_send_key_pane_parses() {
+    let args = Args::try_parse_from(["warp", "send-key-pane", "pane-123", "enter"]).unwrap();
+    let boxed_cmd = unwrap_command_line(args, "`warp send-key-pane`");
+
+    let CliCommand::TerminalControl(crate::terminal_control::TerminalControlCommand::SendKeyPane(
+        args,
+    )) = boxed_cmd.as_ref()
+    else {
+        panic!("Expected `warp send-key-pane` command");
+    };
+
+    assert_eq!(args.pane_id, "pane-123");
+    assert_eq!(args.key, "enter");
+}
+
+#[test]
+fn terminal_control_commands_expose_top_level_names_and_help() {
+    warp_core::features::mark_initialized();
+
+    let mut command = Args::clap_command();
+    command.build();
+
+    let list_panes = command
+        .find_subcommand("list-panes")
+        .expect("list-panes subcommand should exist");
+    let send = command
+        .find_subcommand("send")
+        .expect("send subcommand should exist");
+
+    assert_eq!(list_panes.get_name(), "list-panes");
+    assert_eq!(
+        list_panes.get_about().map(|about| about.to_string()),
+        Some("List terminal panes".to_string())
+    );
+    assert_eq!(
+        send.get_about().map(|about| about.to_string()),
+        Some("Send text to the current pane".to_string())
+    );
 }
 
 #[test]

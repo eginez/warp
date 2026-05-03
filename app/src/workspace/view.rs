@@ -14,7 +14,7 @@ pub(crate) mod right_panel;
 mod startup_directory;
 #[cfg(test)]
 #[path = "view_test.rs"]
-mod tests;
+pub(crate) mod tests;
 mod vertical_tabs;
 #[cfg(target_family = "wasm")]
 mod wasm_view;
@@ -5309,6 +5309,22 @@ impl Workspace {
                 }
             })
             .collect::<Vec<_>>()
+    }
+
+    pub(crate) fn resolve_terminal_pane_locator_by_pane_id(
+        &self,
+        pane_id: PaneId,
+        ctx: &AppContext,
+    ) -> Option<PaneViewLocator> {
+        self.tabs.iter().find_map(|tab| {
+            tab.pane_group
+                .as_ref(ctx)
+                .terminal_view_from_pane_id(pane_id, ctx)
+                .map(|_| PaneViewLocator {
+                    pane_group_id: tab.pane_group.id(),
+                    pane_id,
+                })
+        })
     }
 
     /// Focuses the given pane within the pane group.
