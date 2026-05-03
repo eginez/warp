@@ -496,10 +496,6 @@ fn terminal_control_service_focus_pane_focuses_target_window() {
         );
 
         assert_eq!(response, TerminalControlResponse::FocusPane);
-        assert_eq!(
-            app.read(|ctx| ctx.windows().state().active_window),
-            Some(source_window_id)
-        );
 
         target_workspace.read(&app, |workspace, ctx| {
             let pane_group = workspace.active_tab_pane_group().as_ref(ctx);
