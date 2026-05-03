@@ -61,9 +61,7 @@ fn call_service(
 
 fn command_to_request(command: TerminalControlCommand) -> anyhow::Result<TerminalControlRequest> {
     match command {
-        TerminalControlCommand::CreateTab => {
-            Err(anyhow::anyhow!("terminal control create-tab is not implemented yet"))
-        }
+        TerminalControlCommand::CreateTab => Ok(TerminalControlRequest::CreateTab),
         TerminalControlCommand::ListTabs => Ok(TerminalControlRequest::ListTabs),
         TerminalControlCommand::ListPanes => Ok(TerminalControlRequest::ListPanes),
         TerminalControlCommand::CurrentPane => Ok(TerminalControlRequest::CurrentPane),
@@ -109,11 +107,8 @@ fn write_response_to<W: std::io::Write>(
     output_format: OutputFormat,
 ) -> anyhow::Result<()> {
     match response {
-        TerminalControlResponse::CreateTab { .. } => {
-            let _ = (output, output_format);
-            Err(anyhow::anyhow!(
-                "terminal control create-tab is not implemented yet"
-            ))
+        TerminalControlResponse::CreateTab { pane_id } => {
+            write_create_tab_to(output, pane_id, output_format)
         }
         TerminalControlResponse::ListTabs(tabs) => {
             let rows = tabs.iter().cloned().map(TerminalControlListTabRow::from);
@@ -139,6 +134,26 @@ fn write_response_to<W: std::io::Write>(
             write_success_message_to(output, output_format, "Key sent")
         }
         TerminalControlResponse::Error(err) => Err(anyhow::anyhow!(format_error(err))),
+    }
+}
+
+fn write_create_tab_to<W: std::io::Write>(
+    output: &mut W,
+    pane_id: &str,
+    output_format: OutputFormat,
+) -> anyhow::Result<()> {
+    #[derive(Serialize)]
+    struct CreateTabOutput<'a> {
+        pane_id: &'a str,
+    }
+
+    match output_format {
+        OutputFormat::Json => output::write_json(&CreateTabOutput { pane_id }, output),
+        OutputFormat::Ndjson => output::write_json_line(&CreateTabOutput { pane_id }, output),
+        OutputFormat::Pretty | OutputFormat::Text => {
+            writeln!(output, "Pane ID: {pane_id}")
+                .context("unable to write terminal control output")
+        }
     }
 }
 

@@ -34,6 +34,14 @@ fn terminal_control_send_builds_active_pane_request() {
 }
 
 #[test]
+fn terminal_control_create_tab_builds_request() {
+    assert_eq!(
+        command_to_request(TerminalControlCommand::CreateTab).unwrap(),
+        TerminalControlRequest::CreateTab
+    );
+}
+
+#[test]
 fn terminal_control_send_pane_builds_explicit_target_request() {
     assert_eq!(
         command_to_request(TerminalControlCommand::SendPane(SendTextToPaneArgs {
@@ -172,6 +180,25 @@ fn terminal_control_read_text_output_uses_header_section_then_content() {
             "$ pwd\n",
             "/tmp/project\n"
         )
+    );
+}
+
+#[test]
+fn write_response_to_formats_create_tab_pretty() {
+    let mut output = Cursor::new(Vec::new());
+
+    write_response_to(
+        &mut output,
+        &TerminalControlResponse::CreateTab {
+            pane_id: "pane-1".to_string(),
+        },
+        OutputFormat::Pretty,
+    )
+    .unwrap();
+
+    assert_eq!(
+        String::from_utf8(output.into_inner()).unwrap(),
+        "Pane ID: pane-1\n"
     );
 }
 
